@@ -1,0 +1,3 @@
+Example implementation of tinyurl using erlang and cassandra.
+
+This is not meant for production use.  It's just an example.  I've left out lots of important stuff that's not required for the example.
