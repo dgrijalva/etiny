@@ -84,27 +84,38 @@ code_change(_OldVersion, State, _Extra) -> {ok, State}.
 %% Internal
 %%====================================================================
 
+% Connect to cassandra and return an updated state record.
 connect(State) ->
 	{ok, C} = thrift_client:start_link(State#state.host, State#state.port, cassandra_thrift),
 	State#state{connection = C}.
 	
-
+% Microsecond timestamps for cassandra
 timestamp() ->
 	{MegaSecs, Secs, Microsec} = now(),
 	MegaSecs*1000000000000 + Secs*1000000 + Microsec.
 
+% Lookup a url from a token
+% Uses cassandra 'get' method: http://wiki.apache.org/cassandra/API
+% See cassandra/cassandra_types.hrl for record definitions
 url_for_token(Token, State) ->
+	% 'get' takes (Keyspace, Key, ColumnRecord, ConsistencyLevel)
 	Args = [State#state.keyspace, Token, 
 		#columnPath{column_family = "TinyUrls", column = "url"}, 
 		?cassandra_ONE],
 	% get will throw an exception if the record isn't found
 	try thrift_client:call(State#state.connection, 'get', Args) of
+		% Success returns a columnOrSuperColumn record.  Since we queried for
+		% a column, it contains a column record.
 		{ok, ColumnOrSuperColumn} -> 
 			Column = ColumnOrSuperColumn#columnOrSuperColumn.column,
 			{ok, binary_to_list(Column#column.value)};
+		% get misses throw exceptions.  I don't know what error cases might
+		% cause this.  Catching it just incase.
 		R -> {error, R}
 	catch
+		% Record wasn't found.  Stupid that this is an exception.
 		_:{notFoundException} -> {error, not_found};
+		% Some other exception
 		_:E -> {error, E}
 	end.
 	
@@ -114,26 +125,45 @@ gen_token()	->
 	Size = length(Letters),
 	lists:map(fun(_A)-> lists:nth(random:uniform(Size), Letters) end, "123456").
 
+% Store a url and return the token
+% Uses cassandra 'batch_mutate' method: http://wiki.apache.org/cassandra/API
+% See cassandra/cassandra_types.hrl for record definitions
 token_for_stored_url(Url, State) ->
 	token_for_stored_url(Url, State, 1).
 	
+% Try at most 5 times to find an available token
 token_for_stored_url(Url, State, Try) when Try < 5 ->
 	Token = gen_token(),
 	case url_for_token(Token, State) of
+		% Token is available
 		{error, not_found} ->
+			% mutations can be writes or deletes
 			Mutation = #mutation{
 				column_or_supercolumn = #columnOrSuperColumn{
 					column = #column{name = "url", value = Url, timestamp = timestamp()}
 				}
 			},
-			Response = thrift_client:call(State#state.connection, 'batch_mutate', [State#state.keyspace, dict:store(Token, dict:store("TinyUrls", [Mutation], dict:new()), dict:new()), ?cassandra_ONE]),
+			% 'batch_mutate' takes (Keyspace, MutationDict, ConsistencyLevel)
+			% The mutation dict is a nested dictionary, described in json like this:
+			% {key: {columnFamily: [mutations]}}
+			% In erlang, it expects the dict record type.
+			Args = [State#state.keyspace, 
+				dict:store(Token, 
+					dict:store("TinyUrls", [Mutation], dict:new()), 
+				dict:new()), 
+			?cassandra_ONE],
+			Response = thrift_client:call(State#state.connection, 'batch_mutate', Args),
 			case Response of
+				% Success returns {ok, ok}.  Awesome.
 				{ok,ok} -> {ok, Token};
 				R -> {error, R}
 			end;
+		% Token is taken
 		{ok, _MatchedUrl} ->
 			token_for_stored_url(Url, State, Try + 1);
+		% Something broke
 		OtherError -> OtherError
 	end;
+% Out of tries.  Giving up.
 token_for_stored_url(Url, State, Try) ->
 	{error, could_not_find_available_token}.
