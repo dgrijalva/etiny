@@ -18,7 +18,7 @@ end
 
 desc "Start the server"
 task :start => [:build] do
-  exec("erl -config config/server.config -pa ebin -I include -boot start_sasl -run etiny_app boot")
+  exec("erl -config config/server.config -pa ebin -I include -boot start_sasl -s etiny_app")
 end
 
 CLEAN << 'ebin'

@@ -2,7 +2,7 @@
 -behavior(gen_server).
 
 %% api
--export([start_link/1, get_url/1, store_url/1]).
+-export([start_link/0, start_link/1, get_url/1, store_url/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -15,6 +15,9 @@
 %%====================================================================
 %% API
 %%====================================================================
+start_link() ->
+	{ok, CassandraOpts} = application:get_env(etiny, cassandra),
+	start_link(CassandraOpts).
 
 start_link(Args) ->
   gen_server:start_link({local, ?MODULE}, ?MODULE, Args, []).
@@ -116,14 +119,17 @@ url_for_token(Token, State) ->
 		% Record wasn't found.  Stupid that this is an exception.
 		_:{notFoundException} -> {error, not_found};
 		% Some other exception
-		_:E -> {error, E}
+		Type:E ->
+			error_logger:error_msg("Couldn't get token(~p), ~p:~p~nStack:~p",
+			[Token, Type, E, erlang:get_stacktrace()]),
+			{error, E}
 	end.
 	
 gen_token()	->
 	% Letters that are easy to distinguish visually (no zero or capital o, etc)
 	Letters = "ABCDEFGHJKLMNPQRSTWXYZ23456789abcdefghijkmnpqrstwxyz",
 	Size = length(Letters),
-	lists:map(fun(_A)-> lists:nth(random:uniform(Size), Letters) end, "123456").
+	[ lists:nth(R rem Size, Letters) || <<R:8>> <= crypto:rand_bytes(6) ].
 
 % Store a url and return the token
 % Uses cassandra 'batch_mutate' method: http://wiki.apache.org/cassandra/API
@@ -160,6 +166,7 @@ token_for_stored_url(Url, State, Try) when Try < 5 ->
 			end;
 		% Token is taken
 		{ok, _MatchedUrl} ->
+			error_logger:error_msg("Token collision: ~p -> ~p~n", [Token, _MatchedUrl]),
 			token_for_stored_url(Url, State, Try + 1);
 		% Something broke
 		OtherError -> OtherError

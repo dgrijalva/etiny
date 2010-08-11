@@ -1,4 +1,4 @@
-{application, etiny_app,
+{application, etiny,
  [
   % A quick description of the application.
   {description, "tinyurl server in erlang"},
@@ -8,7 +8,7 @@
 
   % All modules used by the application.
   {modules, [
-		etiny_app, mod_etiny
+		etiny_app, mod_etiny, etiny, etiny_sup
    ]},
 
   % All of the registered names the application uses. This can be ignored.
@@ -21,6 +21,8 @@
    [
     kernel,
     stdlib,
+	inets,
+	crypto,
 	sasl
    ]},
 
