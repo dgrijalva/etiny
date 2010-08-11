@@ -8,7 +8,7 @@
 
   % All modules used by the application.
   {modules, [
-		etiny_app
+		etiny_app, mod_etiny
    ]},
 
   % All of the registered names the application uses. This can be ignored.
@@ -32,7 +32,7 @@
   % configuration parameters similar to those in the config file specified
   % on the command line. can be fetched with gas:get_env
   {env, [
-	{cassandra, [{host, "127.0.0.1"}, {port, 8080}]}
+	{cassandra, [{host, "127.0.0.1"}, {port, 9160}, {keyspace, "etiny_development"}]}
   ]},
 
   % The Module and Args used to start this application.
