@@ -1,1 +1,32 @@
-test
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+	"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head>
+	<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+
+	<title>etiny</title>
+	
+</head>
+
+<body>
+	<div style="display:none; margin-bottom: 3em; text-align: center" id="saved_text">Your URL has been saved as <a href="#" id="saved_url"></a>.</div>
+	<script>
+		var tag = document.location.hash.match(/saved=(.*)$/);
+		if(tag){
+			tag = unescape(tag[1]);
+			var anchor = document.getElementById("saved_url");
+			saved_url.href = "/" + tag;
+			anchor.appendChild(document.createTextNode(tag));
+			document.getElementById('saved_text').style.display = '';
+		} 
+	</script>
+	<form method="POST" action="minify">
+		<div style="text-align:center">
+			<h3>Enter a URL to be shortened</h3>
+			<div><input type="text" name="url" value="http://" style="width:30em" /></div>
+			<input type="submit" value="Minify" />
+		</div>
+	</form>
+</body>
+</html>

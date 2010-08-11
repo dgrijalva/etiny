@@ -23,7 +23,18 @@ do(ReqData) ->
 				% Something else
 				_ -> {proceed, [ReqData]}
 			end;
-		"POST" -> {proceed, [ReqData]};
+		"POST" -> 
+			Args = httpd:parse_query(ReqData#mod.entity_body),
+			error_logger:info_msg("Parsed arg data: ~p~n", [Args]),
+			case proplists:get_value("url", Args) of
+				undefined ->
+					Head = [{code, 301}, {location, "/#error=\"bad_request\""}],
+					{proceed, [{response,{response,Head,nobody}}]};
+				Url ->
+					{ok, Tag} = etiny:store_url(Url),
+					Head = [{code, 301}, {location, "/#saved="++Tag++""}],
+					{proceed, [{response,{response,Head,nobody}}]}
+			end;
 		_ -> {proceed, [ReqData]}
 	end.
 

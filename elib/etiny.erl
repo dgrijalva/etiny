@@ -101,7 +101,7 @@ url_for_token(Token, State) ->
 	try thrift_client:call(State#state.connection, 'get', Args) of
 		{ok, ColumnOrSuperColumn} -> 
 			Column = ColumnOrSuperColumn#columnOrSuperColumn.column,
-			{ok, Column#column.value};
+			{ok, binary_to_list(Column#column.value)};
 		R -> {error, R}
 	catch
 		_:{notFoundException} -> {error, not_found};
