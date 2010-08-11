@@ -115,15 +115,25 @@ gen_token()	->
 	lists:map(fun(_A)-> lists:nth(random:uniform(Size), Letters) end, "123456").
 
 token_for_stored_url(Url, State) ->
-	Token = gen_token(),
-	Mutation = #mutation{
-		column_or_supercolumn = #columnOrSuperColumn{
-			column = #column{name = "url", value = Url, timestamp = timestamp()}
-		}
-	},
-	Response = thrift_client:call(State#state.connection, 'batch_mutate', [State#state.keyspace, dict:store(Token, dict:store("TinyUrls", [Mutation], dict:new()), dict:new()), ?cassandra_ONE]),
-	case Response of
-		{ok,ok} -> {ok, Token};
-		R -> {error, R}
-	end.
+	token_for_stored_url(Url, State, 1).
 	
+token_for_stored_url(Url, State, Try) when Try < 5 ->
+	Token = gen_token(),
+	case url_for_token(Token, State) of
+		{error, not_found} ->
+			Mutation = #mutation{
+				column_or_supercolumn = #columnOrSuperColumn{
+					column = #column{name = "url", value = Url, timestamp = timestamp()}
+				}
+			},
+			Response = thrift_client:call(State#state.connection, 'batch_mutate', [State#state.keyspace, dict:store(Token, dict:store("TinyUrls", [Mutation], dict:new()), dict:new()), ?cassandra_ONE]),
+			case Response of
+				{ok,ok} -> {ok, Token};
+				R -> {error, R}
+			end;
+		{ok, _MatchedUrl} ->
+			token_for_stored_url(Url, State, Try + 1);
+		OtherError -> OtherError
+	end;
+token_for_stored_url(Url, State, Try) ->
+	{error, could_not_find_available_token}.
