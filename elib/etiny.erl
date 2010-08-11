@@ -42,11 +42,11 @@ store_url(Url) ->
 %%--------------------------------------------------------------------
 init(Options) ->
 	error_logger:info_msg("~p starting with options ~p~n", [?MODULE, Options]),
-	{ok, #state{
+	{ok, connect(#state{
 		host = proplists:get_value(host, Options),
 		port = proplists:get_value(port, Options),
 		keyspace = proplists:get_value(keyspace, Options)
-	}}.
+	})}.
 
 %%--------------------------------------------------------------------
 %% Function: %% handle_call(Request, From, State) -> {reply, Reply, State} |
@@ -58,11 +58,9 @@ init(Options) ->
 %% Description: Handling call messages
 %%--------------------------------------------------------------------
 handle_call({get_url, Token}, _From, State) ->
-	{Response, NewState} = url_for_token(Token, State),
-	{reply, Response, NewState};
+	{reply, url_for_token(Token, State), State};
 handle_call({store_url, Url}, _From, State) ->
-	{Response, NewState} = token_for_stored_url(Url, State),
-	{reply, Response, NewState};
+	{reply, token_for_stored_url(Url, State), State};
 handle_call(_Request, _From, State) ->
   {reply, ok, State}.
 
@@ -86,39 +84,35 @@ code_change(_OldVersion, State, _Extra) -> {ok, State}.
 %% Internal
 %%====================================================================
 
+connect(State) ->
+	{ok, C} = thrift_client:start_link(State#state.host, State#state.port, cassandra_thrift),
+	State#state{connection = C}.
+	
+
 timestamp() ->
 	{MegaSecs, Secs, Microsec} = now(),
 	MegaSecs*1000000000000 + Secs*1000000 + Microsec.
 
-cass_call(Method, Args, State) ->
-	case State#state.connection of 
-		undefined -> 
-			{ok, C} = thrift_client:start_link(State#state.host, State#state.port, cassandra_thrift),
-			cass_call(Method, Args, State#state{connection = C});
-		C -> 
-			try thrift_client:call(C, Method, Args) of
-				{ok, Response} -> {{ok, Response}, State};
-				ok -> {ok, State}
-			catch
-				_:{notFoundException} -> {{error, not_found}, State};
-				_:E -> {{error, E}, State}
-			end
-	end.
-	
 url_for_token(Token, State) ->
-	Response = cass_call('get', [State#state.keyspace, Token, 
+	Args = [State#state.keyspace, Token, 
 		#columnPath{column_family = "TinyUrls", column = "url"}, 
-		?cassandra_ONE], State),
-	error_logger:info_msg("Got response from cassandra: ~p~n", [Response]),
-	case Response of
-		{{ok, ColumnOrSuperColumn}, NewState} -> 
+		?cassandra_ONE],
+	% get will throw an exception if the record isn't found
+	try thrift_client:call(State#state.connection, 'get', Args) of
+		{ok, ColumnOrSuperColumn} -> 
 			Column = ColumnOrSuperColumn#columnOrSuperColumn.column,
-			{{ok, Column#column.value}, NewState};
-		_ -> Response
+			{ok, Column#column.value};
+		R -> {error, R}
+	catch
+		_:{notFoundException} -> {error, not_found};
+		_:E -> {error, E}
 	end.
 	
 gen_token()	->
-	"ASDFGH".
+	% Letters that are easy to distinguish visually (no zero or capital o, etc)
+	Letters = "ABCDEFGHJKLMNPQRSTWXYZ23456789abcdefghijkmnpqrstwxyz",
+	Size = length(Letters),
+	lists:map(fun(_A)-> lists:nth(random:uniform(Size), Letters) end, "123456").
 
 token_for_stored_url(Url, State) ->
 	Token = gen_token(),
@@ -127,10 +121,9 @@ token_for_stored_url(Url, State) ->
 			column = #column{name = "url", value = Url, timestamp = timestamp()}
 		}
 	},
-	Response = cass_call('batch_mutate', [State#state.keyspace, dict:store(Token, dict:store("TinyUrls", [Mutation], dict:new()), dict:new()), ?cassandra_ONE], State),
-	error_logger:info_msg("Got response from cassandra: ~p~n", [Response]),
+	Response = thrift_client:call(State#state.connection, 'batch_mutate', [State#state.keyspace, dict:store(Token, dict:store("TinyUrls", [Mutation], dict:new()), dict:new()), ?cassandra_ONE]),
 	case Response of
-		{{ok,ok}, NewState} -> {{ok, Token}, NewState};
-		_ -> Response
+		{ok,ok} -> {ok, Token};
+		R -> {error, R}
 	end.
 	
